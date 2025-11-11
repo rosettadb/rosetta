@@ -9,7 +9,7 @@ read_version
 echo "Version: $APP_VERSION"
 
 create_release() {
-    user="AdaptiveScale"
+    user="rosettadb"
     repo="rosetta"
     token=$TOKEN
     tag="v$APP_VERSION"
