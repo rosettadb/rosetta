@@ -7,7 +7,7 @@ import java.util.Collection;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class DbtSource {
+public class DbtSource extends AbstractDbtModel{
   private String name;
   private String description;
   private Collection<DbtTable> tables;

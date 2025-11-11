@@ -11,10 +11,16 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.representer.Representer;
+import org.yaml.snakeyaml.constructor.Constructor;
 import queryhelper.pojo.GenericResponse;
 import queryhelper.service.DbtAIService;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -324,8 +330,14 @@ public class DbtModelService {
 
     public List<DbtModel> readDbtModels(List<String> filePaths) throws IOException {
         List<DbtModel> result = new ArrayList<>();
+
+        LoaderOptions loaderOptions = new LoaderOptions();
+        loaderOptions.setMaxAliasesForCollections(Integer.MAX_VALUE);
+
+        Yaml yaml = new Yaml(loaderOptions);
         for (String filePath : filePaths) {
-            result.add(yamlMapper.readValue(new File(filePath), DbtModel.class));
+            Object temp = yaml.load(new FileInputStream(filePath));
+            result.add(yamlMapper.convertValue(temp, DbtModel.class));
         }
         return result;
     }

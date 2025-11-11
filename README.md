@@ -56,7 +56,7 @@ Follow these steps to get started with RosettaDB:
 
 Run the following command to download and set up RosettaDB:
 ```
-curl -L "https://github.com/AdaptiveScale/rosetta/releases/download/v2.8.4/rosetta_setup.sh" -o rosetta_setup && chmod u+x rosetta_setup && ./rosetta_setup
+curl -L "https://github.com/rosettadb/rosetta/releases/download/v2.8.5/rosetta_setup.sh" -o rosetta_setup && chmod u+x rosetta_setup && ./rosetta_setup
 ```
 
 **Windows (x64)**
@@ -64,7 +64,7 @@ curl -L "https://github.com/AdaptiveScale/rosetta/releases/download/v2.8.4/roset
 Compatible with 64-bit Intel/AMD processors running Windows
 
 ```
-curl -L "https://github.com/AdaptiveScale/rosetta/releases/download/v2.8.4/rosetta_setup.bat" -o rosetta_setup.bat && .\rosetta_setup.bat
+curl -L "https://github.com/rosettadb/rosetta/releases/download/v2.8.5/rosetta_setup.bat" -o rosetta_setup.bat && .\rosetta_setup.bat
 ```
 
 ### 2. Initialize a New Project
