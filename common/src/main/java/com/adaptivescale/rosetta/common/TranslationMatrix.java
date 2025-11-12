@@ -1,5 +1,6 @@
 package com.adaptivescale.rosetta.common;
 
+import com.adaptivescale.rosetta.common.models.DatabaseTemplateModel;
 import com.adaptivescale.rosetta.common.models.TranslationAttributeModel;
 import com.adaptivescale.rosetta.common.models.TranslationModel;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,11 @@ public class TranslationMatrix {
     private static final String URL = "jdbc:h2:mem:translation;DB_CLOSE_DELAY=-1";
     private static final String TRANSLATION_TABLE_NAME = "TRANSLATION";
     private static final String TRANSLATION_ATTRIBUTE_TABLE_NAME = "TRANSLATION_ATTRIBUTE";
+
+    private static final String DATABASE_TEMPLATE_TABLE_NAME = "DATABASE_TEMPLATE";
+
+    private static final String DEFAULT_DATABASE_TEMPLATE_FILE = "translation_matrix/database_template.csv";
+
 
     private static TranslationMatrix instance = null;
 
@@ -58,6 +64,14 @@ public class TranslationMatrix {
                 "ON "+ TRANSLATION_TABLE_NAME +" (source_type, source_column_type, target_type)";
         execute(index);
         execute(uniqueIndex);
+
+        String databaseTemplateTable = "CREATE TABLE "+ DATABASE_TEMPLATE_TABLE_NAME +"(id INT PRIMARY KEY AUTO_INCREMENT, " +
+                "database_type VARCHAR(255) not null, " +
+                "template_name VARCHAR(255) not null, " +
+                "template_file VARCHAR(255) not null " +
+                ");";
+        execute(databaseTemplateTable);
+
         loadCSVData();
     }
 
@@ -66,7 +80,9 @@ public class TranslationMatrix {
 
         StringBuilder dataInsertQuery = new StringBuilder();
         StringBuilder attributesInsertQuery = new StringBuilder();
+        StringBuilder databaseTemplateInsertQuery = new StringBuilder();
 
+        readDatabaseTemplate(databaseTemplateInsertQuery);
         Map<Integer, List<TranslationAttributeModel>> translationAttributesMappedByTranslationId = readTranslationAttributes(attributesInsertQuery);
         BufferedReader br = readTranslationMatrixFile();
 
@@ -86,6 +102,7 @@ public class TranslationMatrix {
         }
         execute(dataInsertQuery.toString());
         execute(attributesInsertQuery.toString());
+        execute(databaseTemplateInsertQuery.toString());
     }
 
     void execute(String sql) {
@@ -144,6 +161,36 @@ public class TranslationMatrix {
         }
     }
 
+    private Map<String, Map<String, String>> getDatabaseTemplates(String query) {
+        try {
+            Connection connection = DriverManager.getConnection(URL);
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(query);
+            Map<String, Map<String, String>> result = new HashMap<>();
+
+            while (resultSet.next()) {
+                DatabaseTemplateModel databaseTemplateModel = new DatabaseTemplateModel();
+                databaseTemplateModel.setId(resultSet.getInt("id"));
+                databaseTemplateModel.setDatabaseType(resultSet.getString("database_type"));
+                databaseTemplateModel.setTemplateName(resultSet.getString("template_name"));
+                databaseTemplateModel.setTemplateFile(resultSet.getString("template_file"));
+
+                if (!result.containsKey(databaseTemplateModel.getDatabaseType())) {
+                    result.put(databaseTemplateModel.getDatabaseType(), new HashMap<>());
+                }
+
+                result.get(databaseTemplateModel.getDatabaseType())
+                        .put(databaseTemplateModel.getTemplateName(), databaseTemplateModel.getTemplateFile());
+            }
+
+            connection.close();
+
+            return result;
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public TranslationModel findById(Integer id) {
         String query = String.format("SELECT TOP 1 * from %s where id=%s", TRANSLATION_TABLE_NAME, id);
         return getSingleRecord(query);
@@ -167,6 +214,13 @@ public class TranslationMatrix {
         return getTranslationAttributeRecords(query);
     }
 
+    public Map<String, Map<String, String>> findDatabaseTemplates() {
+        String query = String.format("SELECT * from %s",
+                DATABASE_TEMPLATE_TABLE_NAME);
+
+        return getDatabaseTemplates(query);
+    }
+
     private Map<Integer, List<TranslationAttributeModel>> readTranslationAttributes(StringBuilder attributesInsertQuery) throws IOException {
         Map<Integer, List<TranslationAttributeModel>> translationAttributesMappedByTranslationId = new HashMap<>();
         BufferedReader br = readTranslationAttributesFile();
@@ -188,6 +242,23 @@ public class TranslationMatrix {
             attributesInsertQuery.append(insertStatement);
         }
         return translationAttributesMappedByTranslationId;
+    }
+
+    private void readDatabaseTemplate(StringBuilder databaseTemplateInsertQuery) throws IOException {
+        BufferedReader br = readDatabaseTemplateFile();
+        String line = "";
+        while ((line = br.readLine()) != null)
+        {
+            String[] translation = line.split(DELIMITER);
+            DatabaseTemplateModel databaseTemplateModel = new DatabaseTemplateModel();
+            databaseTemplateModel.setId(Integer.valueOf(translation[0]));
+            databaseTemplateModel.setDatabaseType(translation[1]);
+            databaseTemplateModel.setTemplateName(translation[2]);
+            databaseTemplateModel.setTemplateFile(translation[3]);
+
+            String insertStatement = databaseTemplateModel.generateInsertStatement(DATABASE_TEMPLATE_TABLE_NAME);
+            databaseTemplateInsertQuery.append(insertStatement);
+        }
     }
 
     private BufferedReader readTranslationMatrixFile() throws FileNotFoundException {
@@ -215,6 +286,12 @@ public class TranslationMatrix {
 
         //If the file is not provided in the project read it from the resources
         InputStream resourceAsStream = TranslationMatrix.class.getClassLoader().getResourceAsStream(DEFAULT_TRANSLATION_ATTRIBUTE_FILE);
+        return new BufferedReader(new InputStreamReader(resourceAsStream));
+    }
+
+    private BufferedReader readDatabaseTemplateFile() throws FileNotFoundException {
+        //If the file is not provided in the project read it from the resources
+        InputStream resourceAsStream = TranslationMatrix.class.getClassLoader().getResourceAsStream(DEFAULT_DATABASE_TEMPLATE_FILE);
         return new BufferedReader(new InputStreamReader(resourceAsStream));
     }
 }
