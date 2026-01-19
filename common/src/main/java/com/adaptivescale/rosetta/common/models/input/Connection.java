@@ -16,6 +16,11 @@ public class Connection {
     private String userName;
     private String password;
     private Collection<String> tables = new ArrayList<>();
+    
+    // DuckLake-specific fields
+    private String duckdbDatabasePath;
+    private String ducklakeDataPath;
+    private String ducklakeMetadataDb;
 
     public Connection() {
     }
@@ -82,6 +87,30 @@ public class Connection {
 
     public void setTables(Collection<String> tables) {
         this.tables = tables;
+    }
+
+    public String getDuckdbDatabasePath() {
+        return duckdbDatabasePath;
+    }
+
+    public void setDuckdbDatabasePath(String duckdbDatabasePath) {
+        this.duckdbDatabasePath = duckdbDatabasePath;
+    }
+
+    public String getDucklakeDataPath() {
+        return ducklakeDataPath;
+    }
+
+    public void setDucklakeDataPath(String ducklakeDataPath) {
+        this.ducklakeDataPath = ducklakeDataPath;
+    }
+
+    public String getDucklakeMetadataDb() {
+        return ducklakeMetadataDb;
+    }
+
+    public void setDucklakeMetadataDb(String ducklakeMetadataDb) {
+        this.ducklakeMetadataDb = ducklakeMetadataDb;
     }
 
     public Map<String, String> toMap() {
