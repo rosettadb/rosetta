@@ -42,7 +42,6 @@ public class SAPIQColumnsExtractor extends ColumnsExtractor{
         String columnType = String.valueOf(resultSet.getString("TYPE_NAME"));
         column.setTypeName(TranslationMatrix.getInstance().findBySourceTypeAndSourceColumnType("sapiq", columnType));
 
-        // SAP IQ/Sybase may return "YES"/"NO" for IS_NULLABLE instead of boolean
         String nullableStr = resultSet.getString("IS_NULLABLE");
         if (nullableStr != null && (nullableStr.equalsIgnoreCase("YES") || nullableStr.equalsIgnoreCase("NO"))) {
             column.setNullable("YES".equalsIgnoreCase(nullableStr));
