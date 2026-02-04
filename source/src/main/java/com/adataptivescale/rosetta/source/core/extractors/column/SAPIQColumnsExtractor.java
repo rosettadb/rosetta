@@ -39,8 +39,10 @@ public class SAPIQColumnsExtractor extends ColumnsExtractor{
     protected void extract(ResultSet resultSet, Column column) throws SQLException {
         column.setName(resultSet.getString("COLUMN_NAME"));
 
-        String columnType = String.valueOf(resultSet.getString("TYPE_NAME"));
-        column.setTypeName(TranslationMatrix.getInstance().findBySourceTypeAndSourceColumnType("sapiq", columnType));
+        String columnType = resultSet.getString("TYPE_NAME");
+        if (columnType != null) {
+            column.setTypeName(TranslationMatrix.getInstance().findBySourceTypeAndSourceColumnType("sapiq", columnType));
+        }
 
         String nullableStr = resultSet.getString("IS_NULLABLE");
         if (nullableStr != null && (nullableStr.equalsIgnoreCase("YES") || nullableStr.equalsIgnoreCase("NO"))) {
