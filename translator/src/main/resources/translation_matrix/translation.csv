@@ -2697,3 +2697,28 @@
 2883;;redshift;;varbyte;;spanner;;bytes
 2884;;redshift;;intervaly2m;;spanner;;string
 2885;;redshift;;intervald2s;;spanner;;string
+2886;;sapiq;;varchar;;kinetica;;string
+2887;;sapiq;;char;;kinetica;;string
+2888;;sapiq;;long varchar;;kinetica;;string
+2889;;sapiq;;int;;kinetica;;int
+2890;;sapiq;;integer;;kinetica;;int
+2891;;sapiq;;smallint;;kinetica;;int16
+2892;;sapiq;;bigint;;kinetica;;long
+2893;;sapiq;;unsigned bigint;;kinetica;;ulong
+2894;;sapiq;;unsigned int;;kinetica;;int
+2895;;sapiq;;timestamp;;kinetica;;timestamp
+2896;;sapiq;;date;;kinetica;;date
+2897;;sapiq;;binary;;kinetica;;bytes
+2898;;sapiq;;time;;kinetica;;time
+2899;;sapiq;;tinyint;;kinetica;;int8
+2900;;sapiq;;bit;;kinetica;;int8
+2901;;sapiq;;decimal;;kinetica;;decimal
+2902;;sapiq;;numeric;;kinetica;;decimal
+2903;;sapiq;;double;;kinetica;;double
+2904;;sapiq;;double precision;;kinetica;;double
+2905;;sapiq;;real;;kinetica;;float
+2906;;sapiq;;float;;kinetica;;float
+2907;;sapiq;;varbinary;;kinetica;;bytes
+2908;;sapiq;;long binary;;kinetica;;bytes
+2909;;sapiq;;blob;;kinetica;;bytes
+2910;;sapiq;;clob;;kinetica;;string
