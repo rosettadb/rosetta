@@ -1,0 +1,1 @@
+ALTER TABLE [(${tableName})] ADD COLUMN [(${columnDefinition})];
