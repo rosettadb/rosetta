@@ -32,21 +32,22 @@ public class KineticaTablesExtractor extends DefaultTablesExtractor {
         return tables;
     }
 
-    private void attachTableType(Collection<Table> tables, java.sql.Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("SELECT object_name, schema_name, shard_kind, persistence FROM ki_catalog.ki_objects;");
+    private void attachTableType(Collection<Table> tables, java.sql.Connection connection) {
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("SELECT object_name, schema_name, shard_kind, persistence FROM ki_catalog.ki_objects;")) {
 
-        while (resultSet.next()) {
-            String object_schema = resultSet.getString("schema_name");
-            String object_name = resultSet.getString("object_name");
-            Optional<Table> found_table = tables.stream().filter(table -> table.getSchema().equals(object_schema) && table.getName().equals(object_name)).findFirst();
-            if (found_table.isPresent()) {
-                found_table.get().addProperty("shard_kind", resultSet.getString("shard_kind"));
-                found_table.get().addProperty("persistence", resultSet.getString("persistence"));
+            while (resultSet.next()) {
+                String object_schema = resultSet.getString("schema_name");
+                String object_name = resultSet.getString("object_name");
+                Optional<Table> found_table = tables.stream().filter(table -> table.getSchema().equals(object_schema) && table.getName().equals(object_name)).findFirst();
+                if (found_table.isPresent()) {
+                    found_table.get().addProperty("shard_kind", resultSet.getString("shard_kind"));
+                    found_table.get().addProperty("persistence", resultSet.getString("persistence"));
+                }
             }
-        }
-
-        if (!resultSet.isClosed()) {
-            resultSet.close();
+        } catch (SQLException e) {
+            log.warn("Could not attach table type (shard_kind, persistence) from ki_catalog.ki_objects. " +
+                    "Extraction will continue without these properties.");
         }
     }
 
