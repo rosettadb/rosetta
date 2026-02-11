@@ -9,7 +9,7 @@ repositories {
 
 allprojects {
     group = 'com.adaptivescale'
-    version = '2.8.6'
+    version = '2.9.0'
     sourceCompatibility = 11
     targetCompatibility = 11
 }
