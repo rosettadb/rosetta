@@ -67,6 +67,12 @@ public class SourceGeneratorFactory {
     }
 
     public static Generator<Database, Connection> sourceGenerator(Connection connection, JDBCDriverProvider driverProvider) {
+        // Check if this is a DuckLake connection
+        if ("ducklake".equalsIgnoreCase(connection.getDbType())) {
+            log.debug("Detected DuckLake connection, using DuckLakeGenerator");
+            return new DuckLakeGenerator(driverProvider);
+        }
+        
         TableExtractor tablesExtractor = loadTableExtractor(connection);
         ViewExtractor viewExtractor = loadViewExtractor(connection);
         ColumnsExtractor columnsExtractor = loadColumnExtractor(connection);

@@ -39,6 +39,20 @@ public class ConfigYmlConverter implements CommandLine.ITypeConverter<Config> {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(configParameters, "${", "}");
             String processedUrl = stringSubstitutor.replace(connection.getUrl());
             connection.setUrl(processedUrl);
+            
+            // Process DuckLake-specific fields for environment variable substitution
+            if (connection.getDuckdbDatabasePath() != null) {
+                String processedDuckdbPath = stringSubstitutor.replace(connection.getDuckdbDatabasePath());
+                connection.setDuckdbDatabasePath(processedDuckdbPath);
+            }
+            if (connection.getDucklakeDataPath() != null) {
+                String processedDataPath = stringSubstitutor.replace(connection.getDucklakeDataPath());
+                connection.setDucklakeDataPath(processedDataPath);
+            }
+            if (connection.getDucklakeMetadataDb() != null) {
+                String processedMetadataDb = stringSubstitutor.replace(connection.getDucklakeMetadataDb());
+                connection.setDucklakeMetadataDb(processedMetadataDb);
+            }
         }
 
         return config;
