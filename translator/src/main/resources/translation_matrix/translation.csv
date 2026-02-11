@@ -2704,7 +2704,7 @@
 2890;;sapiq;;integer;;kinetica;;int
 2891;;sapiq;;smallint;;kinetica;;int16
 2892;;sapiq;;bigint;;kinetica;;long
-2893;;sapiq;;unsigned bigint;;kinetica;;ulong
+2893;;sapiq;;unsigned bigint;;kinetica;;long
 2894;;sapiq;;unsigned int;;kinetica;;int
 2895;;sapiq;;timestamp;;kinetica;;timestamp
 2896;;sapiq;;date;;kinetica;;date
