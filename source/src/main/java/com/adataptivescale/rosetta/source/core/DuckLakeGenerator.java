@@ -3,11 +3,11 @@ package com.adataptivescale.rosetta.source.core;
 import com.adaptivescale.rosetta.common.JDBCDriverProvider;
 import com.adaptivescale.rosetta.common.JDBCUtils;
 import com.adaptivescale.rosetta.common.DriverManagerDriverProvider;
+import com.adaptivescale.rosetta.common.helpers.ModuleLoader;
 import com.adaptivescale.rosetta.common.models.Database;
 import com.adaptivescale.rosetta.common.models.Table;
 import com.adaptivescale.rosetta.common.models.View;
 import com.adaptivescale.rosetta.common.models.input.Connection;
-import com.adaptivescale.rosetta.common.helpers.ModuleLoader;
 import com.adaptivescale.rosetta.common.types.RosettaModuleTypes;
 import com.adataptivescale.rosetta.source.core.extractors.column.ColumnsExtractor;
 import com.adataptivescale.rosetta.source.core.extractors.table.DefaultTablesExtractor;
@@ -32,298 +32,315 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
 
     @Override
     public Database generate(Connection connection) throws Exception {
-        if (connection.getDucklakeDataPath() == null || connection.getDucklakeDataPath().trim().isEmpty()) {
-            throw new IllegalArgumentException("ducklakeDataPath is required for DuckLake connections");
-        }
+        validateDuckLakeConfig(connection);
 
-        String duckdbUrl = buildDuckDbUrl(connection);
-        Connection tempConnection = new Connection();
-        tempConnection.setUrl(duckdbUrl);
-        tempConnection.setDbType("duckdb");
-        Driver driver = driverProvider.getDriver(tempConnection);
-        Properties properties = JDBCUtils.setJDBCAuth(tempConnection);
-        java.sql.Connection connect = driver.connect(duckdbUrl, properties);
+        String duckdbUrl = buildDuckDbUrl(connection); // MUST be in-memory or session db, never metadata db
+        java.sql.Connection jdbc = openDuckDbConnection(duckdbUrl, connection);
 
         try {
-            String attachedCatalogAlias = setupDuckLake(connect, connection);
-            String actualCatalogWithTables = findCatalogWithTables(connect);
-            if (actualCatalogWithTables != null) {
-                log.info("Using catalog '{}' for extraction", actualCatalogWithTables);
-                attachedCatalogAlias = actualCatalogWithTables;
+            String catalog = setupDuckLake(jdbc, connection);
+
+            // Ensure extractor connection config points to correct catalog/schema
+            Connection duckdbConnection = createDuckDbConnection(connection, duckdbUrl, catalog);
+
+            TableExtractor tableExtractor = loadDuckDbTableExtractor(duckdbConnection);
+            ViewExtractor viewExtractor   = loadDuckDbViewExtractor(duckdbConnection);
+            ColumnExtractor colExtractor  = loadDuckDbColumnExtractor(duckdbConnection);
+
+            // Try normal extractor
+            Collection<Table> allTables;
+            try {
+                allTables = (Collection<Table>) tableExtractor.extract(duckdbConnection, jdbc);
+            } catch (Exception e) {
+                log.warn("Table extractor failed, falling back to information_schema query: {}", e.getMessage());
+                allTables = listTablesFallback(jdbc, catalog, duckdbConnection.getSchemaName());
             }
 
-            Connection duckdbConnection = createDuckDbConnection(connection, duckdbUrl, attachedCatalogAlias);
-            TableExtractor tableExtractor = loadDuckDbTableExtractor(duckdbConnection);
-            ViewExtractor viewExtractor = loadDuckDbViewExtractor(duckdbConnection);
-            ColumnExtractor columnsExtractor = loadDuckDbColumnExtractor(duckdbConnection);
-
-            Collection<Table> allTables = (Collection<Table>) tableExtractor.extract(duckdbConnection, connect);
             Collection<Table> tables = filterDuckLakeMetadataTables(allTables);
-            log.info("Extracted {} user tables from catalog '{}'", tables.size(), attachedCatalogAlias);
+            log.info("Extracted {} user tables from {}.{}", tables.size(), catalog, duckdbConnection.getSchemaName());
 
-            columnsExtractor.extract(connect, tables);
-            Collection<View> views = (Collection<View>) viewExtractor.extract(duckdbConnection, connect);
+            // columns
+            colExtractor.extract(jdbc, tables);
+
+            // views
+            Collection<View> views;
+            try {
+                views = (Collection<View>) viewExtractor.extract(duckdbConnection, jdbc);
+            } catch (Exception e) {
+                log.warn("View extractor failed; continuing with empty view set: {}", e.getMessage());
+                views = List.of();
+            }
             log.info("Extracted {} views", views.size());
-            columnsExtractor.extract(connect, views);
+            colExtractor.extract(jdbc, views);
 
             Database database = new Database();
-            database.setName(connect.getMetaData().getDatabaseProductName());
+            database.setName("ducklake:" + catalog);
             database.setTables(tables);
             database.setViews(views);
             database.setDatabaseType(connection.getDbType());
             return database;
         } finally {
-            connect.close();
+            try { jdbc.close(); } catch (SQLException ignored) {}
         }
     }
 
     @Override
     public Database validate(Connection connection) throws Exception {
-        if (connection.getDucklakeDataPath() == null || connection.getDucklakeDataPath().trim().isEmpty()) {
-            throw new IllegalArgumentException("ducklakeDataPath is required for DuckLake connections");
-        }
+        validateDuckLakeConfig(connection);
 
         String duckdbUrl = buildDuckDbUrl(connection);
-        Connection tempConnection = new Connection();
-        tempConnection.setUrl(duckdbUrl);
-        tempConnection.setDbType("duckdb");
-        Driver driver = driverProvider.getDriver(tempConnection);
-        Properties properties = JDBCUtils.setJDBCAuth(tempConnection);
-        java.sql.Connection connect = driver.connect(duckdbUrl, properties);
-
+        java.sql.Connection jdbc = openDuckDbConnection(duckdbUrl, connection);
         try {
-            setupDuckLake(connect, connection);
+            setupDuckLake(jdbc, connection);
             Database database = new Database();
-            database.setName(connect.getMetaData().getDatabaseProductName());
+            database.setName("ducklake:" + connection.getDatabaseName());
             return database;
         } finally {
-            connect.close();
+            try { jdbc.close(); } catch (SQLException ignored) {}
         }
+    }
+
+    private void validateDuckLakeConfig(Connection c) {
+        if (c.getDatabaseName() == null || c.getDatabaseName().isBlank()) {
+            throw new IllegalArgumentException("databaseName is required for DuckLake connections");
+        }
+        if (c.getDucklakeDataPath() == null || c.getDucklakeDataPath().isBlank()) {
+            throw new IllegalArgumentException("ducklakeDataPath is required for DuckLake connections");
+        }
+        if (c.getDucklakeMetadataDb() == null || c.getDucklakeMetadataDb().isBlank()) {
+            throw new IllegalArgumentException("ducklakeMetadataDb is required for DuckLake connections");
+        }
+    }
+
+    private java.sql.Connection openDuckDbConnection(String duckdbUrl, Connection original) throws SQLException {
+        Connection temp = new Connection();
+        temp.setUrl(duckdbUrl);
+        temp.setDbType("duckdb");
+        Driver driver = driverProvider.getDriver(temp);
+
+        // Use auth if you support it; for local duckdb it’s usually empty
+        Properties props = JDBCUtils.setJDBCAuth(temp);
+
+        log.info("Opening DuckDB JDBC session: {}", duckdbUrl);
+        return driver.connect(duckdbUrl, props);
+    }
+
+    /**
+     * URL rules:
+     * - If connection.url is set and already starts with jdbc:duckdb:, use it as-is.
+     * - Else if duckdbDatabasePath is set and looks like a path, prefix with jdbc:duckdb:
+     * - Else default to jdbc:duckdb: (in-memory)
+     *
+     * IMPORTANT: for DuckLake, DO NOT use the metadata DB file as the main db.
+     */
+    private String buildDuckDbUrl(Connection c) {
+        String url = c.getUrl();
+        if (url != null && !url.isBlank()) {
+            if (url.startsWith("jdbc:duckdb:")) {
+                return url;
+            }
+            // if user accidentally provided plain path in url, still support it
+            return "jdbc:duckdb:" + url;
+        }
+
+        String path = c.getDuckdbDatabasePath();
+        if (path != null && !path.isBlank()) {
+            // If someone mistakenly put "jdbc:duckdb:" into duckdbDatabasePath, just return it cleanly.
+            if (path.startsWith("jdbc:duckdb:")) {
+                return path;
+            }
+            return "jdbc:duckdb:" + path;
+        }
+
+        return "jdbc:duckdb:"; // in-memory
+    }
+
+    private Connection createDuckDbConnection(Connection original, String duckdbUrl, String catalogName) {
+        Connection out = new Connection();
+        out.setName(original.getName());
+        out.setDatabaseName(catalogName);
+
+        String schema = original.getSchemaName();
+        if (schema == null || schema.isBlank()) schema = "main";
+
+        out.setSchemaName(schema);
+        out.setDbType("duckdb");
+        out.setUrl(duckdbUrl);
+        out.setUserName(original.getUserName());
+        out.setPassword(original.getPassword());
+        out.setTables(original.getTables());
+        return out;
+    }
+
+    private String setupDuckLake(java.sql.Connection jdbc, Connection rosetta) throws SQLException {
+        String catalogName = rosetta.getDatabaseName();
+        String dataPath    = rosetta.getDucklakeDataPath();
+        String metadataDb  = rosetta.getDucklakeMetadataDb();
+        String schema = rosetta.getSchemaName();
+        if (schema == null || schema.isBlank()) schema = "main";
+
+        try (Statement stmt = jdbc.createStatement()) {
+            try { stmt.execute("INSTALL ducklake"); } catch (SQLException ignored) {}
+            stmt.execute("LOAD ducklake");
+
+            // Helpful debug
+            logDatabaseList(jdbc);
+
+            String attachSql = String.format(
+                    "ATTACH 'ducklake:%s' AS %s (DATA_PATH '%s', METADATA_PATH '%s');",
+                    dataPath, catalogName, dataPath, metadataDb
+            );
+
+            log.info("Attaching DuckLake catalog: {}", attachSql);
+            try {
+                stmt.execute(attachSql);
+            } catch (SQLException e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                // allow reruns
+                if (msg.contains("already exists") || msg.contains("Catalog with name")) {
+                    log.info("Catalog '{}' already attached, continuing.", catalogName);
+                } else {
+                    throw e;
+                }
+            }
+
+            // Always use catalog.main (matches your terminal usage)
+            stmt.execute("USE " + catalogName + "." + schema + ";");
+        }
+
+        // sanity: verify we can list tables
+        logDuckLakeTables(jdbc, catalogName, schema);
+
+        return catalogName;
+    }
+
+    private void logDatabaseList(java.sql.Connection jdbc) {
+        try (Statement s = jdbc.createStatement();
+             ResultSet rs = s.executeQuery("PRAGMA database_list;")) {
+            while (rs.next()) {
+                String name = rs.getString("name");
+                String file = rs.getString("file");
+                log.info("database_list: name={} file={}", name, file);
+            }
+        } catch (SQLException ignored) {}
+    }
+
+    private void logDuckLakeTables(java.sql.Connection jdbc, String catalog, String schema) {
+        String sql = "SELECT table_name FROM information_schema.tables " +
+                "WHERE table_catalog = ? AND table_schema = ? ORDER BY table_name";
+        try (PreparedStatement ps = jdbc.prepareStatement(sql)) {
+            ps.setString(1, catalog);
+            ps.setString(2, schema);
+            try (ResultSet rs = ps.executeQuery()) {
+                int n = 0;
+                while (rs.next()) {
+                    n++;
+                    log.info("ducklake table: {}.{}.{}", catalog, schema, rs.getString(1));
+                }
+                log.info("ducklake tables total ({}.{}) = {}", catalog, schema, n);
+            }
+        } catch (SQLException e) {
+            log.warn("Could not enumerate tables via information_schema: {}", e.getMessage());
+        }
+    }
+
+    // fallback table listing (if your extractor uses DatabaseMetaData and misses attached catalogs)
+    private Collection<Table> listTablesFallback(java.sql.Connection jdbc, String catalog, String schema) throws SQLException {
+        String sql = "SELECT table_name FROM information_schema.tables " +
+                "WHERE table_catalog = ? AND table_schema = ? AND table_type='BASE TABLE' " +
+                "ORDER BY table_name";
+        List<Table> out = new ArrayList<>();
+        try (PreparedStatement ps = jdbc.prepareStatement(sql)) {
+            ps.setString(1, catalog);
+            ps.setString(2, schema);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Table t = new Table();
+                    t.setName(rs.getString("table_name"));
+                    out.add(t);
+                }
+            }
+        }
+        return out;
     }
 
     // Filters out DuckLake internal metadata tables
     private Collection<Table> filterDuckLakeMetadataTables(Collection<Table> allTables) {
         Set<String> metadataTableNames = Set.of(
-            "ducklake_column", "ducklake_column_tag", "ducklake_data_file", "ducklake_delete_file",
-            "ducklake_file_column_statistics", "ducklake_file_partition_value",
-            "ducklake_files_scheduled_for_deletion", "ducklake_inlined_data_tables",
-            "ducklake_metadata", "ducklake_partition_column", "ducklake_partition_info",
-            "ducklake_schema", "ducklake_snapshot", "ducklake_snapshot_changes",
-            "ducklake_table", "ducklake_table_column_stats", "ducklake_table_stats",
-            "ducklake_tag", "ducklake_view"
+                "ducklake_column", "ducklake_column_tag", "ducklake_data_file", "ducklake_delete_file",
+                "ducklake_file_column_statistics", "ducklake_file_partition_value",
+                "ducklake_files_scheduled_for_deletion", "ducklake_inlined_data_tables",
+                "ducklake_metadata", "ducklake_partition_column", "ducklake_partition_info",
+                "ducklake_schema", "ducklake_snapshot", "ducklake_snapshot_changes",
+                "ducklake_table", "ducklake_table_column_stats", "ducklake_table_stats",
+                "ducklake_tag", "ducklake_view", "ducklake_schema_settings", "ducklake_table_settings"
         );
 
         Collection<Table> userTables = new ArrayList<>();
         for (Table table : allTables) {
-            if (!metadataTableNames.contains(table.getName())) {
+            if (table != null && table.getName() != null && !metadataTableNames.contains(table.getName())) {
                 userTables.add(table);
             }
         }
         return userTables;
     }
 
-    // Finds catalog with user tables
-    private String findCatalogWithTables(java.sql.Connection connection) throws SQLException {
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery(
-                 "SELECT DISTINCT table_catalog FROM information_schema.tables " +
-                 "WHERE table_catalog NOT LIKE '__ducklake_metadata%' " +
-                 "AND table_catalog NOT IN ('system', 'temp') LIMIT 1")) {
-            if (rs.next()) {
-                return rs.getString("table_catalog");
-            }
-        }
-        return null;
-    }
-
-    private String buildDuckDbUrl(Connection connection) {
-        if (connection.getDuckdbDatabasePath() != null && !connection.getDuckdbDatabasePath().trim().isEmpty()) {
-            return "jdbc:duckdb:" + connection.getDuckdbDatabasePath();
-        }
-        return "jdbc:duckdb:";
-    }
-
-    private Connection createDuckDbConnection(Connection originalConnection, String duckdbUrl, String catalogName) {
-        Connection duckdbConnection = new Connection();
-        duckdbConnection.setName(originalConnection.getName());
-        duckdbConnection.setDatabaseName(catalogName);
-        String schemaName = originalConnection.getSchemaName();
-        if (schemaName == null || schemaName.trim().isEmpty()) {
-            schemaName = "main";
-        }
-        duckdbConnection.setSchemaName(schemaName);
-        duckdbConnection.setDbType("duckdb");
-        duckdbConnection.setUrl(duckdbUrl);
-        duckdbConnection.setUserName(originalConnection.getUserName());
-        duckdbConnection.setPassword(originalConnection.getPassword());
-        duckdbConnection.setTables(originalConnection.getTables());
-        return duckdbConnection;
-    }
-
-    private String setupDuckLake(java.sql.Connection connection, Connection rosettaConnection) throws SQLException {
-        Statement stmt = connection.createStatement();
-        try {
-            try {
-                stmt.execute("INSTALL ducklake;");
-            } catch (SQLException e) {
-                // Already installed
-            }
-            stmt.execute("LOAD ducklake;");
-
-            String catalogName = rosettaConnection.getDatabaseName();
-            if (catalogName == null || catalogName.trim().isEmpty()) {
-                throw new IllegalArgumentException("databaseName is required for DuckLake connections");
-            }
-
-            String metadataDb = rosettaConnection.getDucklakeMetadataDb();
-            if (metadataDb != null && !metadataDb.trim().isEmpty()) {
-                java.io.File metadataFile = new java.io.File(metadataDb);
-                String fileName = metadataFile.getName();
-                if (fileName.endsWith(".duckdb")) {
-                    fileName = fileName.substring(0, fileName.length() - 7);
-                }
-                metadataDb = fileName + ".ducklake";
-            } else {
-                metadataDb = catalogName.toLowerCase() + ".ducklake";
-            }
-
-            String attachSql = String.format(
-                "ATTACH 'ducklake:%s' AS %s (DATA_PATH '%s');",
-                metadataDb, catalogName, rosettaConnection.getDucklakeDataPath()
-            );
-
-            try {
-                log.info("Attaching DuckLake catalog: {}", attachSql);
-                stmt.execute(attachSql);
-            } catch (SQLException e) {
-                if (e.getMessage() != null && e.getMessage().contains("already exists")) {
-                    log.info("Catalog '{}' is already attached", catalogName);
-                } else {
-                    throw e;
-                }
-            }
-
-            try (Statement useStmt = connection.createStatement()) {
-                useStmt.execute("USE " + catalogName + ";");
-            }
-
-            registerParquetFiles(connection, rosettaConnection, catalogName);
-            return catalogName;
-        } finally {
-            stmt.close();
-        }
-    }
-
-    // Registers parquet files from data path as tables
-    private void registerParquetFiles(java.sql.Connection connection, Connection rosettaConnection, String catalogName) throws SQLException {
-        java.io.File dataDir = new java.io.File(rosettaConnection.getDucklakeDataPath());
-        if (!dataDir.exists() || !dataDir.isDirectory()) {
-            return;
-        }
-
-        java.io.File[] parquetFiles = dataDir.listFiles((dir, name) ->
-            name.toLowerCase().endsWith(".parquet") || name.toLowerCase().endsWith(".parq"));
-
-        if (parquetFiles == null || parquetFiles.length == 0) {
-            return;
-        }
-
-        log.info("Registering {} parquet file(s) as tables", parquetFiles.length);
-        try (Statement createStmt = connection.createStatement()) {
-            for (java.io.File parquetFile : parquetFiles) {
-                String fileName = parquetFile.getName();
-                String tableName = fileName;
-                if (tableName.endsWith(".parquet")) {
-                    tableName = tableName.substring(0, tableName.length() - 8);
-                } else if (tableName.endsWith(".parq")) {
-                    tableName = tableName.substring(0, tableName.length() - 5);
-                }
-                tableName = tableName.replaceAll("[^a-zA-Z0-9_]", "_");
-
-                try {
-                    String createTableSql = String.format(
-                        "CREATE TABLE IF NOT EXISTS %s AS SELECT * FROM read_parquet('%s');",
-                        tableName, parquetFile.getAbsolutePath()
-                    );
-                    createStmt.execute(createTableSql);
-                    log.info("Registered parquet file '{}' as table '{}'", fileName, tableName);
-                } catch (SQLException e) {
-                    log.warn("Could not register parquet file '{}': {}", fileName, e.getMessage());
-                }
-            }
-        }
-    }
-
     private TableExtractor loadDuckDbTableExtractor(Connection connection) {
-        Optional<Class<?>> tableExtractorModule = ModuleLoader.loadModuleByAnnotationClassValues(
+        Optional<Class<?>> mod = ModuleLoader.loadModuleByAnnotationClassValues(
                 DefaultTablesExtractor.class.getPackageName(), RosettaModuleTypes.TABLE_EXTRACTOR, connection.getDbType());
-        if (tableExtractorModule.isEmpty()) {
+        if (mod.isEmpty()) {
             log.warn("DuckDB table extractor not found, falling back to default.");
             return new DefaultTablesExtractor();
         }
         try {
-            return (TableExtractor) tableExtractorModule.get().getDeclaredConstructor().newInstance();
+            return (TableExtractor) mod.get().getDeclaredConstructor().newInstance();
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException("Failed to instantiate DuckDB table extractor", e);
         }
     }
 
     private ViewExtractor loadDuckDbViewExtractor(Connection connection) {
-        Optional<Class<?>> viewExtractorModule = ModuleLoader.loadModuleByAnnotationClassValues(
+        Optional<Class<?>> mod = ModuleLoader.loadModuleByAnnotationClassValues(
                 DefaultViewExtractor.class.getPackageName(), RosettaModuleTypes.VIEW_EXTRACTOR, connection.getDbType());
-        if (viewExtractorModule.isEmpty()) {
+        if (mod.isEmpty()) {
             log.warn("DuckDB view extractor not found, falling back to default.");
             return new DefaultViewExtractor();
         }
         try {
-            return (ViewExtractor) viewExtractorModule.get().getDeclaredConstructor().newInstance();
+            return (ViewExtractor) mod.get().getDeclaredConstructor().newInstance();
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException("Failed to instantiate DuckDB view extractor", e);
         }
     }
 
     private ColumnExtractor loadDuckDbColumnExtractor(Connection connection) {
-        Optional<Class<?>> columnExtractorModule = ModuleLoader.loadModuleByAnnotationClassValues(
+        Optional<Class<?>> mod = ModuleLoader.loadModuleByAnnotationClassValues(
                 ColumnsExtractor.class.getPackageName(), RosettaModuleTypes.COLUMN_EXTRACTOR, connection.getDbType());
-        if (columnExtractorModule.isEmpty()) {
+        if (mod.isEmpty()) {
             log.warn("DuckDB column extractor not found, falling back to default.");
             return new ColumnsExtractor(connection);
         }
         try {
-            return (ColumnExtractor) columnExtractorModule.get().getDeclaredConstructor(
-                    Connection.class).newInstance(connection);
+            return (ColumnExtractor) mod.get().getDeclaredConstructor(Connection.class).newInstance(connection);
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException("Failed to instantiate DuckDB column extractor", e);
         }
     }
 
-    // Helper method to execute SQL commands
+    // Helper method to execute SQL commands (fixed URL building)
     public static void executeDebugSQL(Connection connection, String sql) throws Exception {
-        if (connection.getDucklakeDataPath() == null || connection.getDucklakeDataPath().trim().isEmpty()) {
-            throw new IllegalArgumentException("ducklakeDataPath is required for DuckLake connections");
-        }
+        DuckLakeGenerator generator = new DuckLakeGenerator(new DriverManagerDriverProvider());
+        String duckdbUrl = generator.buildDuckDbUrl(connection);
 
-        String duckdbUrl = connection.getDuckdbDatabasePath() != null && !connection.getDuckdbDatabasePath().trim().isEmpty()
-            ? "jdbc:duckdb:" + connection.getDuckdbDatabasePath()
-            : "jdbc:duckdb:";
-
-        Connection tempConnection = new Connection();
-        tempConnection.setUrl(duckdbUrl);
-        tempConnection.setDbType("duckdb");
-        Driver driver = new DriverManagerDriverProvider().getDriver(tempConnection);
-        Properties properties = JDBCUtils.setJDBCAuth(tempConnection);
-        java.sql.Connection connect = driver.connect(duckdbUrl, properties);
-
+        java.sql.Connection jdbc = generator.openDuckDbConnection(duckdbUrl, connection);
         try {
-            DuckLakeGenerator generator = new DuckLakeGenerator(new DriverManagerDriverProvider());
-            generator.setupDuckLake(connect, connection);
+            generator.setupDuckLake(jdbc, connection);
 
-            try (Statement stmt = connect.createStatement()) {
+            try (Statement stmt = jdbc.createStatement()) {
                 log.info("Executing SQL: {}", sql);
                 boolean hasResults = stmt.execute(sql);
                 if (hasResults) {
                     try (ResultSet rs = stmt.getResultSet()) {
-                        log.info("Query returned results:");
                         int colCount = rs.getMetaData().getColumnCount();
                         while (rs.next()) {
                             StringBuilder row = new StringBuilder("  ");
@@ -335,28 +352,11 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
                         }
                     }
                 } else {
-                    log.info("SQL executed successfully. Rows affected: {}", stmt.getUpdateCount());
+                    log.info("SQL executed. Rows affected: {}", stmt.getUpdateCount());
                 }
             }
         } finally {
-            connect.close();
+            try { jdbc.close(); } catch (SQLException ignored) {}
         }
-    }
-
-    // Helper method to import CSV file into DuckLake catalog
-    public static void importCsvToDuckLake(Connection connection, String csvFilePath, String tableName) throws Exception {
-        String catalogName = connection.getDatabaseName();
-        if (catalogName == null || catalogName.trim().isEmpty()) {
-            throw new IllegalArgumentException("databaseName must be set to the DuckLake catalog name");
-        }
-
-        String sql = String.format(
-            "USE %s; CREATE TABLE %s AS SELECT * FROM read_csv_auto('%s');",
-            catalogName, tableName, csvFilePath
-        );
-
-        log.info("Importing CSV file '{}' as table '{}' in catalog '{}'", csvFilePath, tableName, catalogName);
-        executeDebugSQL(connection, sql);
-        log.info("Successfully imported CSV file!");
     }
 }
