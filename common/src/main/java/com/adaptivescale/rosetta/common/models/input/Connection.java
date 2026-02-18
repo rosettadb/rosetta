@@ -22,6 +22,11 @@ public class Connection {
     private String ducklakeDataPath;
     private String ducklakeMetadataDb;
 
+    // AWS S3-specific fields
+    private String s3Region;
+    private String s3AccessKeyId;
+    private String s3SecretAccessKey;
+
     public Connection() {
     }
 
@@ -111,6 +116,30 @@ public class Connection {
 
     public void setDucklakeMetadataDb(String ducklakeMetadataDb) {
         this.ducklakeMetadataDb = ducklakeMetadataDb;
+    }
+
+    public String getS3Region() {
+        return s3Region;
+    }
+
+    public void setS3Region(String s3Region) {
+        this.s3Region = s3Region;
+    }
+
+    public String getS3AccessKeyId() {
+        return s3AccessKeyId;
+    }
+
+    public void setS3AccessKeyId(String s3AccessKeyId) {
+        this.s3AccessKeyId = s3AccessKeyId;
+    }
+
+    public String getS3SecretAccessKey() {
+        return s3SecretAccessKey;
+    }
+
+    public void setS3SecretAccessKey(String s3SecretAccessKey) {
+        this.s3SecretAccessKey = s3SecretAccessKey;
     }
 
     public Map<String, String> toMap() {

@@ -2,7 +2,6 @@ package com.adataptivescale.rosetta.source.core;
 
 import com.adaptivescale.rosetta.common.JDBCDriverProvider;
 import com.adaptivescale.rosetta.common.JDBCUtils;
-import com.adaptivescale.rosetta.common.DriverManagerDriverProvider;
 import com.adaptivescale.rosetta.common.helpers.ModuleLoader;
 import com.adaptivescale.rosetta.common.models.Database;
 import com.adaptivescale.rosetta.common.models.Table;
@@ -47,22 +46,24 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
             ViewExtractor viewExtractor   = loadDuckDbViewExtractor(duckdbConnection);
             ColumnExtractor colExtractor  = loadDuckDbColumnExtractor(duckdbConnection);
 
-            // Try normal extractor
-            Collection<Table> allTables;
-            try {
-                allTables = (Collection<Table>) tableExtractor.extract(duckdbConnection, jdbc);
-            } catch (Exception e) {
-                log.warn("Table extractor failed, falling back to information_schema query: {}", e.getMessage());
-                allTables = listTablesFallback(jdbc, catalog, duckdbConnection.getSchemaName());
+            Collection<Table> allTables = listTablesFromDuckLakeMetadata(jdbc, catalog, duckdbConnection.getSchemaName());
+            if (allTables.isEmpty()) {
+                try {
+                    allTables = (Collection<Table>) tableExtractor.extract(duckdbConnection, jdbc);
+                    if (allTables.isEmpty()) {
+                        allTables = listTablesFallback(jdbc, catalog, duckdbConnection.getSchemaName());
+                    }
+                } catch (Exception e) {
+                    log.warn("Table extractor failed, falling back to information_schema: {}", e.getMessage());
+                    allTables = listTablesFallback(jdbc, catalog, duckdbConnection.getSchemaName());
+                }
             }
 
             Collection<Table> tables = filterDuckLakeMetadataTables(allTables);
             log.info("Extracted {} user tables from {}.{}", tables.size(), catalog, duckdbConnection.getSchemaName());
 
-            // columns
             colExtractor.extract(jdbc, tables);
 
-            // views
             Collection<View> views;
             try {
                 views = (Collection<View>) viewExtractor.extract(duckdbConnection, jdbc);
@@ -100,9 +101,19 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
         }
     }
 
+    /** Allowed for catalog/schema identifiers to prevent SQL injection. */
+    private static final java.util.regex.Pattern SAFE_IDENTIFIER = java.util.regex.Pattern.compile("^[a-zA-Z0-9_]+$");
+
     private void validateDuckLakeConfig(Connection c) {
         if (c.getDatabaseName() == null || c.getDatabaseName().isBlank()) {
             throw new IllegalArgumentException("databaseName is required for DuckLake connections");
+        }
+        if (!SAFE_IDENTIFIER.matcher(c.getDatabaseName()).matches()) {
+            throw new IllegalArgumentException("databaseName must contain only alphanumeric characters and underscores");
+        }
+        String schema = c.getSchemaName();
+        if (schema != null && !schema.isBlank() && !SAFE_IDENTIFIER.matcher(schema).matches()) {
+            throw new IllegalArgumentException("schemaName must contain only alphanumeric characters and underscores");
         }
         if (c.getDucklakeDataPath() == null || c.getDucklakeDataPath().isBlank()) {
             throw new IllegalArgumentException("ducklakeDataPath is required for DuckLake connections");
@@ -121,38 +132,20 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
         // Use auth if you support it; for local duckdb it’s usually empty
         Properties props = JDBCUtils.setJDBCAuth(temp);
 
-        log.info("Opening DuckDB JDBC session: {}", duckdbUrl);
         return driver.connect(duckdbUrl, props);
     }
 
-    /**
-     * URL rules:
-     * - If connection.url is set and already starts with jdbc:duckdb:, use it as-is.
-     * - Else if duckdbDatabasePath is set and looks like a path, prefix with jdbc:duckdb:
-     * - Else default to jdbc:duckdb: (in-memory)
-     *
-     * IMPORTANT: for DuckLake, DO NOT use the metadata DB file as the main db.
-     */
+    /** Build JDBC URL; for DuckLake use in-memory or session DB, not the metadata DB file. */
     private String buildDuckDbUrl(Connection c) {
         String url = c.getUrl();
         if (url != null && !url.isBlank()) {
-            if (url.startsWith("jdbc:duckdb:")) {
-                return url;
-            }
-            // if user accidentally provided plain path in url, still support it
-            return "jdbc:duckdb:" + url;
+            return url.startsWith("jdbc:duckdb:") ? url : "jdbc:duckdb:" + url;
         }
-
         String path = c.getDuckdbDatabasePath();
         if (path != null && !path.isBlank()) {
-            // If someone mistakenly put "jdbc:duckdb:" into duckdbDatabasePath, just return it cleanly.
-            if (path.startsWith("jdbc:duckdb:")) {
-                return path;
-            }
-            return "jdbc:duckdb:" + path;
+            return path.startsWith("jdbc:duckdb:") ? path : "jdbc:duckdb:" + path;
         }
-
-        return "jdbc:duckdb:"; // in-memory
+        return "jdbc:duckdb:";
     }
 
     private Connection createDuckDbConnection(Connection original, String duckdbUrl, String catalogName) {
@@ -173,78 +166,100 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
     }
 
     private String setupDuckLake(java.sql.Connection jdbc, Connection rosetta) throws SQLException {
+
         String catalogName = rosetta.getDatabaseName();
-        String dataPath    = rosetta.getDucklakeDataPath();
+        String dataPath    = rosetta.getDucklakeDataPath();   // could be s3:// or local
         String metadataDb  = rosetta.getDucklakeMetadataDb();
-        String schema = rosetta.getSchemaName();
+        String schema      = rosetta.getSchemaName();
         if (schema == null || schema.isBlank()) schema = "main";
 
         try (Statement stmt = jdbc.createStatement()) {
+
             try { stmt.execute("INSTALL ducklake"); } catch (SQLException ignored) {}
             stmt.execute("LOAD ducklake");
 
-            // Helpful debug
-            logDatabaseList(jdbc);
+            String attachSql;
 
-            String attachSql = String.format(
-                    "ATTACH 'ducklake:%s' AS %s (DATA_PATH '%s', METADATA_PATH '%s');",
-                    dataPath, catalogName, dataPath, metadataDb
-            );
+            if (dataPath != null && dataPath.startsWith("s3://")) {
+                try { stmt.execute("INSTALL httpfs"); } catch (SQLException ignored) {}
+                stmt.execute("LOAD httpfs");
+                applyS3Credentials(stmt, rosetta);
+            }
 
-            log.info("Attaching DuckLake catalog: {}", attachSql);
+            String safeCatalog = quoteIdentifier(catalogName);
+            String safeSchema = quoteIdentifier(schema);
+            attachSql = String.format("ATTACH 'ducklake:%s' AS %s (DATA_PATH '%s');",
+                    escapeSqlSingleQuotes(metadataDb), safeCatalog, escapeSqlSingleQuotes(dataPath));
+
             try {
                 stmt.execute(attachSql);
             } catch (SQLException e) {
                 String msg = e.getMessage() == null ? "" : e.getMessage();
-                // allow reruns
-                if (msg.contains("already exists") || msg.contains("Catalog with name")) {
-                    log.info("Catalog '{}' already attached, continuing.", catalogName);
-                } else {
+                if (!msg.contains("already exists") && !msg.contains("Catalog with name")) {
                     throw e;
                 }
             }
 
-            // Always use catalog.main (matches your terminal usage)
-            stmt.execute("USE " + catalogName + "." + schema + ";");
+            stmt.execute("USE " + safeCatalog + "." + safeSchema + ";");
         }
-
-        // sanity: verify we can list tables
-        logDuckLakeTables(jdbc, catalogName, schema);
 
         return catalogName;
     }
 
-    private void logDatabaseList(java.sql.Connection jdbc) {
-        try (Statement s = jdbc.createStatement();
-             ResultSet rs = s.executeQuery("PRAGMA database_list;")) {
-            while (rs.next()) {
-                String name = rs.getString("name");
-                String file = rs.getString("file");
-                log.info("database_list: name={} file={}", name, file);
-            }
-        } catch (SQLException ignored) {}
-    }
-
-    private void logDuckLakeTables(java.sql.Connection jdbc, String catalog, String schema) {
-        String sql = "SELECT table_name FROM information_schema.tables " +
-                "WHERE table_catalog = ? AND table_schema = ? ORDER BY table_name";
-        try (PreparedStatement ps = jdbc.prepareStatement(sql)) {
-            ps.setString(1, catalog);
-            ps.setString(2, schema);
-            try (ResultSet rs = ps.executeQuery()) {
-                int n = 0;
-                while (rs.next()) {
-                    n++;
-                    log.info("ducklake table: {}.{}.{}", catalog, schema, rs.getString(1));
-                }
-                log.info("ducklake tables total ({}.{}) = {}", catalog, schema, n);
-            }
-        } catch (SQLException e) {
-            log.warn("Could not enumerate tables via information_schema: {}", e.getMessage());
+    private void applyS3Credentials(Statement stmt, Connection rosetta) throws SQLException {
+        String region = rosetta.getS3Region();
+        String accessKey = rosetta.getS3AccessKeyId();
+        String secretKey = rosetta.getS3SecretAccessKey();
+        if (region != null && !region.isBlank()) {
+            stmt.execute("SET s3_region='" + region.replace("'", "''") + "';");
+        }
+        if (accessKey != null && !accessKey.isBlank()) {
+            stmt.execute("SET s3_access_key_id='" + accessKey.replace("'", "''") + "';");
+        }
+        if (secretKey != null && !secretKey.isBlank()) {
+            stmt.execute("SET s3_secret_access_key='" + secretKey.replace("'", "''") + "';");
         }
     }
 
-    // fallback table listing (if your extractor uses DatabaseMetaData and misses attached catalogs)
+    private static String escapeSqlSingleQuotes(String value) {
+        return value == null ? "" : value.replace("'", "''");
+    }
+
+    /** Quote identifier for DuckDB (double-quote and escape any " inside). */
+    private static String quoteIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) return "\"main\"";
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    /**
+     * List user tables from DuckLake metadata. User tables are not in information_schema under the
+     * attached catalog; they are in __ducklake_metadata_&lt;catalog&gt;.ducklake_table.
+     */
+    private Collection<Table> listTablesFromDuckLakeMetadata(java.sql.Connection jdbc, String catalog, String schema) throws SQLException {
+        String metadataCatalog = "\"__ducklake_metadata_" + catalog.replace("\"", "\"\"") + "\"";
+        String sql = "SELECT DISTINCT t.table_name, s.schema_name FROM " + metadataCatalog + ".main.ducklake_table t " +
+                "JOIN " + metadataCatalog + ".main.ducklake_schema s ON t.schema_id = s.schema_id " +
+                "ORDER BY t.table_name, s.schema_name";
+        List<Table> out = new ArrayList<>();
+        try (PreparedStatement ps = jdbc.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String tableName = rs.getString(1);
+                String schemaName = rs.getString(2);
+                if (schemaName == null) schemaName = schema;
+                if (!schema.equals(schemaName)) continue;
+                Table t = new Table();
+                t.setName(tableName);
+                t.setSchema(schemaName);
+                out.add(t);
+            }
+        }
+        if (out.isEmpty()) {
+            log.warn("DuckLake metadata has no user tables; ensure ducklakeMetadataDb is the same file your DataLake uses and that the catalog has been persisted.");
+        }
+        return out;
+    }
+
     private Collection<Table> listTablesFallback(java.sql.Connection jdbc, String catalog, String schema) throws SQLException {
         String sql = "SELECT table_name FROM information_schema.tables " +
                 "WHERE table_catalog = ? AND table_schema = ? AND table_type='BASE TABLE' " +
@@ -257,6 +272,8 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
                 while (rs.next()) {
                     Table t = new Table();
                     t.setName(rs.getString("table_name"));
+                    t.setSchema(schema);
+                    t.setType("BASE TABLE");
                     out.add(t);
                 }
             }
@@ -264,7 +281,6 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
         return out;
     }
 
-    // Filters out DuckLake internal metadata tables
     private Collection<Table> filterDuckLakeMetadataTables(Collection<Table> allTables) {
         Set<String> metadataTableNames = Set.of(
                 "ducklake_column", "ducklake_column_tag", "ducklake_data_file", "ducklake_delete_file",
@@ -324,39 +340,6 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
             return (ColumnExtractor) mod.get().getDeclaredConstructor(Connection.class).newInstance(connection);
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException("Failed to instantiate DuckDB column extractor", e);
-        }
-    }
-
-    // Helper method to execute SQL commands (fixed URL building)
-    public static void executeDebugSQL(Connection connection, String sql) throws Exception {
-        DuckLakeGenerator generator = new DuckLakeGenerator(new DriverManagerDriverProvider());
-        String duckdbUrl = generator.buildDuckDbUrl(connection);
-
-        java.sql.Connection jdbc = generator.openDuckDbConnection(duckdbUrl, connection);
-        try {
-            generator.setupDuckLake(jdbc, connection);
-
-            try (Statement stmt = jdbc.createStatement()) {
-                log.info("Executing SQL: {}", sql);
-                boolean hasResults = stmt.execute(sql);
-                if (hasResults) {
-                    try (ResultSet rs = stmt.getResultSet()) {
-                        int colCount = rs.getMetaData().getColumnCount();
-                        while (rs.next()) {
-                            StringBuilder row = new StringBuilder("  ");
-                            for (int i = 1; i <= colCount; i++) {
-                                if (i > 1) row.append(" | ");
-                                row.append(rs.getString(i));
-                            }
-                            log.info(row.toString());
-                        }
-                    }
-                } else {
-                    log.info("SQL executed. Rows affected: {}", stmt.getUpdateCount());
-                }
-            }
-        } finally {
-            try { jdbc.close(); } catch (SQLException ignored) {}
         }
     }
 }
