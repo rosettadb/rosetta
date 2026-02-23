@@ -46,7 +46,13 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
             ViewExtractor viewExtractor   = loadDuckDbViewExtractor(duckdbConnection);
             ColumnExtractor colExtractor  = loadDuckDbColumnExtractor(duckdbConnection);
 
-            Collection<Table> allTables = listTablesFromDuckLakeMetadata(jdbc, catalog, duckdbConnection.getSchemaName());
+            Collection<Table> allTables;
+            try {
+                allTables = listTablesFromDuckLakeMetadata(jdbc, catalog, duckdbConnection.getSchemaName());
+            } catch (Exception e) {
+                log.warn("DuckLake metadata listing failed, attempting fallbacks", e);
+                allTables = List.of();
+            }
             if (allTables.isEmpty()) {
                 try {
                     allTables = (Collection<Table>) tableExtractor.extract(duckdbConnection, jdbc);
@@ -127,6 +133,8 @@ public class DuckLakeGenerator implements Generator<Database, Connection> {
         Connection temp = new Connection();
         temp.setUrl(duckdbUrl);
         temp.setDbType("duckdb");
+        temp.setUserName(original.getUserName());
+        temp.setPassword(original.getPassword());
         Driver driver = driverProvider.getDriver(temp);
 
         // Use auth if you support it; for local duckdb it’s usually empty
