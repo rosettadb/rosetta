@@ -39,6 +39,29 @@ public class ConfigYmlConverter implements CommandLine.ITypeConverter<Config> {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(configParameters, "${", "}");
             String processedUrl = stringSubstitutor.replace(connection.getUrl());
             connection.setUrl(processedUrl);
+            
+            // Process DuckLake-specific fields for environment variable substitution
+            if (connection.getDuckdbDatabasePath() != null) {
+                String processedDuckdbPath = stringSubstitutor.replace(connection.getDuckdbDatabasePath());
+                connection.setDuckdbDatabasePath(processedDuckdbPath);
+            }
+            if (connection.getDucklakeDataPath() != null) {
+                String processedDataPath = stringSubstitutor.replace(connection.getDucklakeDataPath());
+                connection.setDucklakeDataPath(processedDataPath);
+            }
+            if (connection.getDucklakeMetadataDb() != null) {
+                String processedMetadataDb = stringSubstitutor.replace(connection.getDucklakeMetadataDb());
+                connection.setDucklakeMetadataDb(processedMetadataDb);
+            }
+            if (connection.getS3Region() != null) {
+                connection.setS3Region(stringSubstitutor.replace(connection.getS3Region()));
+            }
+            if (connection.getS3AccessKeyId() != null) {
+                connection.setS3AccessKeyId(stringSubstitutor.replace(connection.getS3AccessKeyId()));
+            }
+            if (connection.getS3SecretAccessKey() != null) {
+                connection.setS3SecretAccessKey(stringSubstitutor.replace(connection.getS3SecretAccessKey()));
+            }
         }
 
         return config;

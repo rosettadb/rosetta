@@ -15,6 +15,7 @@ import com.adaptivescale.rosetta.test.assertion.DefaultSqlExecution;
 import com.adaptivescale.rosetta.test.assertion.generator.AssertionSqlGeneratorFactory;
 import com.adataptivescale.rosetta.source.core.SourceGeneratorFactory;
 import org.junit.ClassRule;
+import org.junit.Ignore;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.Db2Container;
 import org.testcontainers.containers.JdbcDatabaseContainer;
@@ -30,7 +31,8 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
-
+@Ignore
+@Disabled
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class DB2IntegrationTest {

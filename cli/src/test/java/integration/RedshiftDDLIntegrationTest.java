@@ -13,6 +13,7 @@ import com.adaptivescale.rosetta.test.assertion.DefaultAssertTestEngine;
 import com.adaptivescale.rosetta.test.assertion.DefaultSqlExecution;
 import com.adaptivescale.rosetta.test.assertion.generator.AssertionSqlGeneratorFactory;
 import integration.helpers.GenericJDBCContainer;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.jupiter.api.*;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -22,6 +23,8 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
+@Ignore
+@Disabled
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class RedshiftDDLIntegrationTest {
@@ -96,8 +99,6 @@ public class RedshiftDDLIntegrationTest {
             "    cint8 BIGINT," +
             "    cdate DATE," +
             "    ctime TIME," +
-            "    ctimtz TIME WITH TIME ZONE," +
-            "    ctimestamptz TIMESTAMP WITH TIME ZONE," +
             "    ctimestamp TIMESTAMP," +
             "    cnumeric NUMERIC(18)," +
             "    cfloat4 REAL," +

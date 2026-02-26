@@ -78,6 +78,10 @@ public class DbtModelGenerator {
         dbtTable.setName(table.getName());
         Collection<DbtColumn> dbtColumns = new ArrayList<>();
 
+        if (table.getColumns() == null) {
+            return dbtTable;
+        }
+
         table.getColumns().forEach(column -> {
             Collection<String> tests = new ArrayList<>();
             DbtColumn dbtColumn = new DbtColumn();
