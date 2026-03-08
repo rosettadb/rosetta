@@ -21,39 +21,39 @@ public class SpannerDDLTest {
     @Test
     public void addInterleaveTable() throws IOException {
         String ddl = generateDDL("add_interleave_table");
-        Assertions.assertEquals("CREATE TABLE AlbumsNew(SingerId INT64 NOT NULL , AlbumId INT64 NOT NULL , AlbumTitle STRING(MAX)) PRIMARY KEY (SingerId, AlbumId),\r" +
-                "INTERLEAVE IN PARENT Singers ON DELETE CASCADE;", ddl);
+        Assertions.assertEquals("CREATE TABLE AlbumsNew(SingerId INT64 NOT NULL , AlbumId INT64 NOT NULL , AlbumTitle STRING(MAX)) PRIMARY KEY (SingerId, AlbumId),\n" +
+                "INTERLEAVE IN PARENT Singers ON DELETE CASCADE;\n",  ddl.replaceAll("(?m)^[ \t]*\r?\n", ""));
     }
 
     @Test
     public void createDB() throws IOException {
     String ddl = generateDDL("clean_database");
-    Assertions.assertEquals("CREATE TABLE Singers(SingerId STRING(1024) NOT NULL , FirstName STRING(1024), LastName STRING(1024)) PRIMARY KEY (SingerId);CREATE VIEW `SingerNames` SQL SECURITY INVOKER AS SELECT    Singers.SingerId AS SingerId,    Singers.FirstName || ' ' || Singers.LastName AS Name FROM Singers ;CREATE VIEW `NamesSinger` SQL SECURITY INVOKER AS SELECT    Singers.SingerId AS SingerId,    Singers.FirstName,   Singers.LastName FROM Singers ;",
+    Assertions.assertEquals(" CREATE TABLE Singers(SingerId STRING(1024) NOT NULL , FirstName STRING(1024), LastName STRING(1024)) PRIMARY KEY (SingerId);  CREATE VIEW `SingerNames` SQL SECURITY INVOKER AS SELECT    Singers.SingerId AS SingerId,    Singers.FirstName || ' ' || Singers.LastName AS Name FROM Singers ;CREATE VIEW `NamesSinger` SQL SECURITY INVOKER AS SELECT    Singers.SingerId AS SingerId,    Singers.FirstName,   Singers.LastName FROM Singers ;",
                             ddl.replaceAll("(\\n)", " ").replaceAll("(\\r)", ""));
     }
 
     @Test
     public void addTable() throws IOException {
     String ddl = generateDDL("add_table");
-    Assertions.assertEquals("CREATE TABLE Logs(LogId INT64 NOT NULL , Description STRING(1024)) PRIMARY KEY (LogId);", ddl);
+    Assertions.assertEquals("CREATE TABLE Logs(LogId INT64 NOT NULL , Description STRING(1024)) PRIMARY KEY (LogId);\n",  ddl.replaceAll("(?m)^[ \t]*\r?\n", ""));
     }
 
     @Test
     public void dropTable() throws IOException {
     String ddl = generateDDL("drop_table");
-    Assertions.assertEquals("DROP TABLE Logs;", ddl);
+    Assertions.assertEquals("DROP TABLE Logs;\n", ddl.replaceAll("(?m)^[ \t]*\r?\n", ""));
     }
 
     @Test
     public void addColumn() throws IOException {
     String ddl = generateDDL("add_column");
-    Assertions.assertEquals("ALTER TABLE Logs ADD COLUMN Status STRING(1024);", ddl);
+    Assertions.assertEquals("ALTER TABLE Logs ADD COLUMN Status STRING(1024);\n", ddl.replaceAll("(?m)^[ \t]*\r?\n", ""));
     }
 
     @Test
     public void dropColumn() throws IOException {
         String ddl = generateDDL("drop_column");
-        Assertions.assertEquals("ALTER TABLE Logs DROP COLUMN Status;", ddl);
+        Assertions.assertEquals("ALTER TABLE Logs DROP COLUMN Status;\n", ddl.replaceAll("(?m)^[ \t]*\r?\n", ""));
     }
 
     @Test

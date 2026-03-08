@@ -1,0 +1,7 @@
+[# th:if="${interleavedTable} == null or ${interleavedTable} == ''"]
+CREATE TABLE [(${tableName})]([(${tableCode})]) [(${primaryKeyDefinition})];
+[/]
+[# th:if="${interleavedTable} != null and ${interleavedTable} != ''"]
+CREATE TABLE [(${tableName})]([(${tableCode})]) [(${primaryKeyDefinition})],
+INTERLEAVE IN PARENT [(${interleavedTable})] [(${deleteRule})];
+[/]
