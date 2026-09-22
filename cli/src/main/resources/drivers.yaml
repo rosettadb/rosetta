@@ -6,8 +6,8 @@
   link: https://jdbc.postgresql.org/download/postgresql-42.3.7.jar
 - name: MySQL 8.0.30
   link: https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-java-8.0.30.zip
-- name: Kinetica 7.1.7.7
-  link: https://github.com/kineticadb/kinetica-client-jdbc/archive/refs/tags/v7.1.7.7.zip
+- name: Kinetica 7.2.3.26
+  link: https://github.com/kineticadb/kinetica-client-jdbc/archive/refs/tags/v7.2.3.26.zip
 - name: Google Cloud Spanner 2.6.2
   link: https://search.maven.org/remotecontent?filepath=com/google/cloud/google-cloud-spanner-jdbc/2.6.2/google-cloud-spanner-jdbc-2.6.2-single-jar-with-dependencies.jar
 - name: SQL Server 12.2.0

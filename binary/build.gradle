@@ -90,3 +90,94 @@ runtime {
         windowsScriptTemplate = file("file:/${resourcesDir}/windows_template.txt")
     }
 }
+
+// ---------------------------------------------------------------------------
+// *-with-drivers bundles: the runtime image plus a pre-filled drivers/ folder.
+// ---------------------------------------------------------------------------
+
+def driverDownloadsDir = layout.buildDirectory.dir('driver-downloads')
+def driversDir = layout.buildDirectory.dir('drivers')
+
+// JDBC drivers packaged into the bundles. Plain .jar links are copied as is.
+// .zip links are extracted keeping only .jar files ('include' narrows that further,
+// 'flatten' drops the archive's folder structure).
+def bundledDrivers = [
+        [name: 'Google Cloud BigQuery 4.2', url: 'https://storage.googleapis.com/simba-bq-release/jdbc/SimbaJDBCDriverforGoogleBigQuery42_1.3.0.1001.zip'],
+        [name: 'Snowflake 3.13.19', url: 'https://repo1.maven.org/maven2/net/snowflake/snowflake-jdbc/3.13.19/snowflake-jdbc-3.13.19.jar'],
+        [name: 'Postgresql 42.3.7', url: 'https://jdbc.postgresql.org/download/postgresql-42.3.7.jar'],
+        [name: 'Redshift 42-2.1.0.30', url: 'https://s3.amazonaws.com/redshift-downloads/drivers/jdbc/2.1.0.30/redshift-jdbc42-2.1.0.30.jar'],
+        [name: 'DuckDB 1.3.0.0', url: 'https://repo1.maven.org/maven2/org/duckdb/duckdb_jdbc/1.3.0.0/duckdb_jdbc-1.3.0.0.jar'],
+        [name: 'Databricks 2.6.40', url: 'https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.40/databricks-jdbc-2.6.40.jar'],
+        [name: 'Kinetica 7.2.3.26', url: 'https://github.com/kineticadb/kinetica-client-jdbc/archive/refs/tags/v7.2.3.26.zip',
+         include: '**/kinetica-jdbc-7.2.3.26-jar-with-dependencies.jar', flatten: true],
+]
+
+tasks.register('downloadDrivers') {
+    description = 'Downloads the JDBC drivers packaged into the *-with-drivers bundles'
+    outputs.dir driversDir
+    doLast {
+        def downloadDir = driverDownloadsDir.get().asFile
+        def targetDir = driversDir.get().asFile
+        downloadDir.mkdirs()
+        targetDir.deleteDir()
+        targetDir.mkdirs()
+
+        bundledDrivers.each { driver ->
+            def fileName = driver.url.substring(driver.url.lastIndexOf('/') + 1)
+            def downloaded = new File(downloadDir, fileName)
+            if (!downloaded.exists()) {
+                logger.lifecycle("Downloading ${driver.name} from ${driver.url}")
+                new URL(driver.url).withInputStream { input ->
+                    downloaded.withOutputStream { output -> output << input }
+                }
+            } else {
+                logger.lifecycle("Using cached ${driver.name}: ${downloaded}")
+            }
+
+            if (fileName.endsWith('.zip')) {
+                copy {
+                    from zipTree(downloaded)
+                    include driver.include ?: '**/*.jar'
+                    includeEmptyDirs = false
+                    into targetDir
+                    if (driver.flatten) {
+                        eachFile { it.path = it.name }
+                    }
+                }
+            } else {
+                copy {
+                    from downloaded
+                    into targetDir
+                }
+            }
+        }
+    }
+}
+
+def bundlePlatforms = ['linux-x64', 'mac_x64', 'mac_aarch64', 'win_x64']
+
+bundlePlatforms.each { platform ->
+    tasks.register("runtimeZipWithDrivers_${platform}", Zip) {
+        description = "Builds the ${platform} runtime image bundled with JDBC drivers"
+        dependsOn 'runtime', 'downloadDrivers'
+
+        def bundleName = "rosetta-${project.version}-${platform}"
+        archiveFileName = "${bundleName}-with-drivers.zip"
+        destinationDirectory = layout.buildDirectory
+
+        from(layout.buildDirectory.dir("image/binary-${platform}")) {
+            into bundleName
+        }
+        from(driversDir) {
+            into "${bundleName}/drivers"
+        }
+        filesMatching('**/bin/*') {
+            mode = 0755
+        }
+    }
+}
+
+tasks.register('runtimeZipWithDrivers') {
+    description = 'Builds the *-with-drivers bundles for all platforms'
+    dependsOn bundlePlatforms.collect { "runtimeZipWithDrivers_${it}" }
+}
