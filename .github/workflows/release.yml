@@ -24,7 +24,7 @@ jobs:
         run: gradle test
 
       - name: Build binaries
-        run: gradle binary:runtimeZip
+        run: gradle binary:runtimeZip binary:runtimeZipWithDrivers
 
       - name: Update Version
         run: 'BRANCH_NAME=${{ github.ref_name }} scripts/update_version.sh'
