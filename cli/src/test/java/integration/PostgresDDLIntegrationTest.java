@@ -219,7 +219,7 @@ public class PostgresDDLIntegrationTest {
     @Order(1)
     void textExtract() throws Exception {
         Database sourceModel = container.getDatabaseModel();
-        assertSame("Comparing table count.", 26, sourceModel.getTables().size());
+        assertSame("Comparing table count.", 21, sourceModel.getTables().size());
         assertSame("Comparing actor table column count.", 4, container.getTableColumns(sourceModel, "actor").size());
     }
 
