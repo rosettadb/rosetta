@@ -30,7 +30,7 @@ jobs:
         run: gradle test
 
       - name: Build binaries
-        run: gradle binary:runtimeZip
+        run: gradle binary:runtimeZip binary:runtimeZipWithDrivers
 
       - name: Build docker image
         run: 'scripts/docker.sh'
