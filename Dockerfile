@@ -6,4 +6,4 @@ RUN  apk update \
   && rm -rf /var/cache/apk/*
 
 RUN mkdir /opt/rosetta
-COPY binary/build/image/binary-linux-x64 /opt/rosetta/
+COPY binary/build/image/binary-linux_x64 /opt/rosetta/
