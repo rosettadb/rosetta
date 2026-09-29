@@ -74,17 +74,23 @@ upload_custom_release_file() {
 
 create_release
 cd binary/build
-rename_release_files "rosetta-$APP_VERSION-linux-x64" "linux-x64"
+rename_release_files "rosetta-$APP_VERSION-linux_x64" "linux_x64"
 rename_release_files "rosetta-$APP_VERSION-mac_aarch64" "mac_aarch64"
 rename_release_files "rosetta-$APP_VERSION-mac_x64" "mac_x64"
 rename_release_files "rosetta-$APP_VERSION-win_x64" "win_x64"
 cd ../..
-upload_custom_release_file "rosetta-$APP_VERSION-linux-x64.zip" "binary/build/"
+upload_custom_release_file "rosetta-$APP_VERSION-linux_x64.zip" "binary/build/"
 upload_custom_release_file "rosetta-$APP_VERSION-mac_aarch64.zip" "binary/build/"
 upload_custom_release_file "rosetta-$APP_VERSION-mac_x64.zip" "binary/build/"
 upload_custom_release_file "rosetta-$APP_VERSION-win_x64.zip" "binary/build/"
-upload_custom_release_file "rosetta-$APP_VERSION-linux-x64-with-drivers.zip" "binary/build/"
+upload_custom_release_file "rosetta-$APP_VERSION-linux_x64-with-drivers.zip" "binary/build/"
 upload_custom_release_file "rosetta-$APP_VERSION-mac_aarch64-with-drivers.zip" "binary/build/"
 upload_custom_release_file "rosetta-$APP_VERSION-mac_x64-with-drivers.zip" "binary/build/"
 upload_custom_release_file "rosetta-$APP_VERSION-win_x64-with-drivers.zip" "binary/build/"
 upload_custom_release_file "cli-$APP_VERSION.jar" "cli/build/libs/"
+
+mkdir -p build
+sed "s/__ROSETTA_VERSION__/$APP_VERSION/" scripts/templates/rosetta_setup.sh > build/rosetta_setup.sh
+sed "s/__ROSETTA_VERSION__/$APP_VERSION/" scripts/templates/rosetta_setup.bat > build/rosetta_setup.bat
+upload_custom_release_file "rosetta_setup.sh" "build/"
+upload_custom_release_file "rosetta_setup.bat" "build/"

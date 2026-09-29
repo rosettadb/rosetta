@@ -40,7 +40,7 @@ runtime {
             'jdk.crypto.cryptoki',
             'java.security.jgss'
     ]
-    targetPlatform("linux-x64") {
+    targetPlatform("linux_x64") {
         imageZip = project.ext.imageFile
         jdkHome = jdkDownload("https://github.com/AdoptOpenJDK/openjdk11-binaries/releases/download/jdk-11.0.9.1%2B1/OpenJDK11U-jdk_x64_linux_hotspot_11.0.9.1_1.tar.gz") {
             downloadDir = "$buildDir/jdklinux"
@@ -154,7 +154,7 @@ tasks.register('downloadDrivers') {
     }
 }
 
-def bundlePlatforms = ['linux-x64', 'mac_x64', 'mac_aarch64', 'win_x64']
+def bundlePlatforms = ['linux_x64', 'mac_x64', 'mac_aarch64', 'win_x64']
 
 bundlePlatforms.each { platform ->
     tasks.register("runtimeZipWithDrivers_${platform}", Zip) {
