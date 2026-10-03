@@ -1,5 +1,6 @@
 package com.adaptivescale.rosetta.ddl.targets.sqlserver;
 
+import com.adaptivescale.rosetta.common.TranslationMatrix;
 import com.adaptivescale.rosetta.common.annotations.RosettaModule;
 import com.adaptivescale.rosetta.common.models.Column;
 import com.adaptivescale.rosetta.common.models.Database;
@@ -17,6 +18,8 @@ import java.sql.DatabaseMetaData;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.adaptivescale.rosetta.ddl.DatabaseTemplateEnum.*;
+
 @Slf4j
 @RosettaModule(
         name = "sqlserver",
@@ -24,32 +27,12 @@ import java.util.stream.Collectors;
 )
 public class SQLServerDDLGenerator implements DDL {
 
-    private final static String TABLE_CREATE_TEMPLATE = "sqlserver/table/create";
-
-    private final static String TABLE_ALTER_TEMPLATE = "sqlserver/table/alter";
-
-    private final static String TABLE_ALTER_DROP_PRIMARY_KEY_TEMPLATE = "sqlserver/table/alter_drop_primary_key";
-
-    private final static String TABLE_ALTER_ADD_PRIMARY_KEY_TEMPLATE = "sqlserver/table/alter_add_primary_key";
-
-    private final static String TABLE_DROP_TEMPLATE = "sqlserver/table/drop";
-
-    private final static String SCHEMA_CREATE_TEMPLATE = "sqlserver/schema/create";
-
-    private final static String FOREIGN_KEY_CREATE_TEMPLATE = "sqlserver/foreignkey/create";
-
-    private final static String FOREIGN_KEY_DROP_TEMPLATE = "sqlserver/foreignkey/drop";
-
-    private final static String COLUMN_ADD_TEMPLATE = "sqlserver/column/add";
-
-    private final static String COLUMN_ALTER_TYPE_TEMPLATE = "sqlserver/column/alter_column_type";
-
-    private final static String COLUMN_ALTER_NULL_TEMPLATE = "sqlserver/column/alter_column_null";
-
-    private final static String COLUMN_DROP_TEMPLATE = "sqlserver/column/drop";
-
     private final ColumnSQLDecoratorFactory columnSQLDecoratorFactory = new SQLServerColumnDecoratorFactory();
 
+    private Map<String, String> databaseTemplates = TranslationMatrix
+            .getInstance()
+            .findDatabaseTemplates()
+            .get("sqlserver");
 
     @Override
     public String createColumn(Column column) {
@@ -74,7 +57,8 @@ public class SQLServerDDLGenerator implements DDL {
         createParams.put("schemaName", table.getSchema());
         createParams.put("tableName", table.getName());
         createParams.put("tableCode", definitionAsString);
-        stringBuilder.append(TemplateEngine.process(TABLE_CREATE_TEMPLATE, createParams));
+        Optional.ofNullable(databaseTemplates.get(TABLE_CREATE.getName()))
+            .ifPresent(it -> stringBuilder.append(TemplateEngine.process(it, createParams)));
 
         return stringBuilder.toString();
     }
@@ -129,7 +113,9 @@ public class SQLServerDDLGenerator implements DDL {
         params.put("primaryTableName", foreignKey.getPrimaryTableName());
         params.put("foreignKeyPrimaryColumnName", foreignKey.getPrimaryColumnName());
         params.put("foreignkeyName", foreignKey.getName());
-        return TemplateEngine.process(FOREIGN_KEY_CREATE_TEMPLATE, params);
+        return Optional.ofNullable(databaseTemplates.get(FOREIGNKEY_CREATE.getName()))
+            .map(it -> TemplateEngine.process(it, params))
+            .orElse("");
     }
 
     @Override
@@ -143,17 +129,20 @@ public class SQLServerDDLGenerator implements DDL {
 
         if (!Objects.equals(expected.getTypeName(), actual.getTypeName())) {
             params.put("dataType", expected.getTypeName());
-            return TemplateEngine.process(COLUMN_ALTER_TYPE_TEMPLATE, params);
+            return Optional.ofNullable(databaseTemplates.get(COLUMN_ALTER_TYPE.getName()))
+                .map(it -> TemplateEngine.process(it, params))
+                .orElse("");
         }
 
         if (!Objects.equals(expected.isNullable(), actual.isNullable())) {
             if (expected.isNullable()) {
                 params.put("nullDefinition", "DROP NOT NULL");
-                return TemplateEngine.process(COLUMN_ALTER_NULL_TEMPLATE, params);
             } else {
                 params.put("nullDefinition", "SET NOT NULL");
-                return TemplateEngine.process(COLUMN_ALTER_NULL_TEMPLATE, params);
             }
+            return Optional.ofNullable(databaseTemplates.get(COLUMN_ALTER_NULL.getName()))
+                .map(it -> TemplateEngine.process(it, params))
+                .orElse("");
         }
 
         log.info("No action taken for changes detected in column: {}.{}.{}", change.getTable().getSchema(),
@@ -172,7 +161,9 @@ public class SQLServerDDLGenerator implements DDL {
         params.put("schemaName", table.getSchema());
         params.put("tableName", table.getName());
         params.put("columnName", actual.getName());
-        return TemplateEngine.process(COLUMN_DROP_TEMPLATE, params);
+        return Optional.ofNullable(databaseTemplates.get(COLUMN_DROP.getName()))
+            .map(it -> TemplateEngine.process(it, params))
+            .orElse("");
     }
 
     @Override
@@ -184,7 +175,9 @@ public class SQLServerDDLGenerator implements DDL {
         params.put("schemaName", table.getSchema());
         params.put("tableName", table.getName());
         params.put("columnDefinition", columnSQLDecoratorFactory.decoratorFor(expected).expressSQl());
-        return TemplateEngine.process(COLUMN_ADD_TEMPLATE, params);
+        return Optional.ofNullable(databaseTemplates.get(COLUMN_ADD.getName()))
+            .map(it -> TemplateEngine.process(it, params))
+            .orElse("");
     }
 
     @Override
@@ -192,7 +185,9 @@ public class SQLServerDDLGenerator implements DDL {
         Map<String, Object> params = new HashMap<>();
         params.put("schemaName", actual.getSchema());
         params.put("tableName", actual.getName());
-        return TemplateEngine.process(TABLE_DROP_TEMPLATE, params);
+        return Optional.ofNullable(databaseTemplates.get(TABLE_DROP.getName()))
+            .map(it -> TemplateEngine.process(it, params))
+            .orElse("");
     }
 
     @Override
@@ -206,7 +201,9 @@ public class SQLServerDDLGenerator implements DDL {
         params.put("schemaName", actual.getSchema());
         params.put("tableName", actual.getTableName());
         params.put("foreignkeyName", actual.getName());
-        return TemplateEngine.process(FOREIGN_KEY_DROP_TEMPLATE, params);
+        return Optional.ofNullable(databaseTemplates.get(FOREIGNKEY_DROP.getName()))
+            .map(it -> TemplateEngine.process(it, params))
+            .orElse("");
     }
 
     @Override
@@ -220,9 +217,10 @@ public class SQLServerDDLGenerator implements DDL {
         if (doesPKExist) {
             params.put("schemaName", expected.getSchema());
             params.put("tableName", tableNameWithSchema(expected));
-            stringBuilder.append(
-                    TemplateEngine.process(TABLE_ALTER_DROP_PRIMARY_KEY_TEMPLATE, params)
-            );
+            String tableAlter = Optional.ofNullable(databaseTemplates.get(TABLE_ALTER_DROP_PRIMARY_KEY.getName()))
+                .map(it -> TemplateEngine.process(it, params))
+                .orElse("");
+            stringBuilder.append(tableAlter);
         }
 
         if (doWeNeedToCreatePk) {
@@ -231,9 +229,10 @@ public class SQLServerDDLGenerator implements DDL {
                 params.put("schemaName", expected.getSchema());
                 params.put("tableName", tableNameWithSchema(expected));
                 params.put("primaryKeyDefinition", primaryKeysForTable.get());
-                stringBuilder.append(
-                        TemplateEngine.process(TABLE_ALTER_ADD_PRIMARY_KEY_TEMPLATE, params)
-                );
+                String tableAlter = Optional.ofNullable(databaseTemplates.get(TABLE_ALTER_ADD_PRIMARY_KEY.getName()))
+                    .map(it -> TemplateEngine.process(it, params))
+                    .orElse("");
+                stringBuilder.append(tableAlter);
             }
         }
 
@@ -298,6 +297,8 @@ public class SQLServerDDLGenerator implements DDL {
     private String createSchema(String schema) {
         Map<String, Object> params = new HashMap<>();
         params.put("schemaName", schema);
-        return TemplateEngine.process(SCHEMA_CREATE_TEMPLATE, params);
+        return Optional.ofNullable(databaseTemplates.get(SCHEMA_CREATE.getName()))
+            .map(it -> TemplateEngine.process(it, params))
+            .orElse("");
     }
 }

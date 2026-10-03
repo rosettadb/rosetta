@@ -1,0 +1,12 @@
+1;;sqlserver;;table_create;;sqlserver/table/create
+2;;sqlserver;;table_alter;;sqlserver/table/alter
+3;;sqlserver;;table_alter_drop_primary_key;;sqlserver/table/alter_drop_primary_key
+4;;sqlserver;;table_alter_add_primary_key;;sqlserver/table/alter_add_primary_key
+5;;sqlserver;;table_drop;;sqlserver/table/drop
+6;;sqlserver;;schema_create;;sqlserver/schema/create
+7;;sqlserver;;foreignkey_create;;sqlserver/foreignkey/create
+8;;sqlserver;;foreignkey_drop;;sqlserver/foreignkey/drop
+9;;sqlserver;;column_add;;sqlserver/column/add
+10;;sqlserver;;column_alter_type;;sqlserver/column/alter_column_type
+11;;sqlserver;;column_alter_null;;sqlserver/column/alter_column_null
+12;;sqlserver;;column_drop;;sqlserver/column/drop
