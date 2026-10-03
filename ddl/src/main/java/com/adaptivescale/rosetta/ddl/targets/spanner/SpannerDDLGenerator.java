@@ -22,6 +22,12 @@ import static java.util.Comparator.*;
         type = RosettaModuleTypes.DDL_GENERATOR
 )
 public class SpannerDDLGenerator implements DDL {
+    private final static String TABLE_CREATE_TEMPLATE = "spanner/table/create";
+    private final static String TABLE_DROP_TEMPLATE = "spanner/table/drop";
+    private final static String FOREIGN_KEY_CREATE_TEMPLATE = "spanner/foreignkey/create";
+    private final static String FOREIGN_KEY_DROP_TEMPLATE = "spanner/foreignkey/drop";
+    private final static String COLUMN_ADD_TEMPLATE = "spanner/column/add";
+    private final static String COLUMN_DROP_TEMPLATE = "spanner/column/drop";
     private static String VIEW_CREATE_TEMPLATE = "spanner/view/create";
     private static String VIEW_ALTER_TEMPLATE = "spanner/view/alter";
     private static String VIEW_DROP_TEMPLATE = "spanner/view/drop";
@@ -39,44 +45,28 @@ public class SpannerDDLGenerator implements DDL {
             throw new RuntimeException(String.format("Table %s has no primary key. Spanner requires tables to have primary key.", table.getName()));
         }
         List<String> definitions = table.getColumns().stream().map(this::createColumn).collect(Collectors.toList());
-
+        Map<String, Object> createParams = new HashMap<>();
         Optional<String> primaryKeysForTable = createPrimaryKeysForTable(table);
         String definitionAsString = String.join(", ", definitions);
 
         StringBuilder stringBuilder = new StringBuilder();
         if (dropTableIfExists) {
-            stringBuilder.append("DROP TABLE IF EXISTS ");
-            if (table.getSchema() != null && !table.getSchema().isBlank()) {
-                stringBuilder.append("`").append(table.getSchema()).append("`.");
-            }
-            stringBuilder.append(DEFAULT_WRAPPER).append(table.getName()).append(DEFAULT_WRAPPER).append("; \n");
+            stringBuilder.append(dropTable(table));
         }
 
-        stringBuilder.append("CREATE TABLE ");
-
-        if (table.getSchema() != null && !table.getSchema().isBlank()) {
-            stringBuilder.append(DEFAULT_WRAPPER)
-                .append(table.getSchema()).append(DEFAULT_WRAPPER).append(".");
-        }
-
-        stringBuilder.append(DEFAULT_WRAPPER).append(table.getName()).append(DEFAULT_WRAPPER)
-                .append("(").append(definitionAsString).append(")");
-        if(primaryKeysForTable.isPresent()) {
-            stringBuilder.append(" ");
-            stringBuilder.append(primaryKeysForTable.get());
-        }
 
         if (table.getInterleave() != null) {
-            stringBuilder.append(",\r");
-            stringBuilder.append("INTERLEAVE IN PARENT ")
-                    .append(table.getInterleave().getParentName());
-
             final String onDeleteAction = table.getInterleave().getOnDeleteAction();
             if (onDeleteAction != null && !onDeleteAction.isEmpty()) {
-                stringBuilder.append(" ON DELETE ").append(table.getInterleave().getOnDeleteAction());
+                createParams.put("deleteRule", String.format("ON DELETE %s", table.getInterleave().getOnDeleteAction()));
             }
+            createParams.put("interleavedTable", table.getInterleave().getParentName());
         }
-        stringBuilder.append(";");
+        createParams.put("schemaName", table.getSchema());
+        createParams.put("tableName", table.getName());
+        createParams.put("tableCode", definitionAsString);
+        primaryKeysForTable.ifPresent(s -> createParams.put("primaryKeyDefinition", s));
+        stringBuilder.append(TemplateEngine.process(TABLE_CREATE_TEMPLATE, createParams));
         return stringBuilder.toString();
     }
 
@@ -158,12 +148,16 @@ public class SpannerDDLGenerator implements DDL {
         if (foreignKey.getName() == null) {
             return "";
         }
-        return "ALTER TABLE" + handleNullSchema(foreignKey.getSchema(), foreignKey.getTableName()) + " ADD CONSTRAINT "
-                + foreignKey.getName() + " FOREIGN KEY ("+ DEFAULT_WRAPPER + foreignKey.getColumnName() + DEFAULT_WRAPPER +") REFERENCES "
-                + foreignKey.getPrimaryTableName()
-//                + handleNullSchema(foreignKey.getPrimaryTableSchema(), foreignKey.getPrimaryTableName())
-                + "("+ DEFAULT_WRAPPER + foreignKey.getPrimaryColumnName()+ DEFAULT_WRAPPER + ")"
-                + foreignKeyDeleteRuleSanitation(foreignKeyDeleteRule(foreignKey)) + ";\r";
+        Map<String, Object> params = new HashMap<>();
+        params.put("schemaName", foreignKey.getSchema());
+        params.put("tableName", foreignKey.getTableName());
+        params.put("foreignkeyColumn", foreignKey.getColumnName());
+        params.put("primaryTableSchema", foreignKey.getPrimaryTableSchema());
+        params.put("primaryTableName", foreignKey.getPrimaryTableName());
+        params.put("foreignKeyPrimaryColumnName", foreignKey.getPrimaryColumnName());
+        params.put("foreignkeyName", foreignKey.getName());
+        params.put("deleteRule", foreignKeyDeleteRule(foreignKey));
+        return TemplateEngine.process(FOREIGN_KEY_CREATE_TEMPLATE, params);
     }
 
     @Override
@@ -200,9 +194,11 @@ public class SpannerDDLGenerator implements DDL {
         Table table = change.getTable();
         Column actual = change.getActual();
 
-        return "ALTER TABLE" +
-                handleNullSchema(table.getSchema(), table.getName()) + " DROP COLUMN "+ DEFAULT_WRAPPER +
-                actual.getName() + DEFAULT_WRAPPER +";";
+        Map<String, Object> params = new HashMap<>();
+        params.put("schemaName", table.getSchema());
+        params.put("tableName", table.getName());
+        params.put("columnName", actual.getName());
+        return TemplateEngine.process(COLUMN_DROP_TEMPLATE, params);
     }
 
     @Override
@@ -210,15 +206,19 @@ public class SpannerDDLGenerator implements DDL {
         Table table = change.getTable();
         Column expected = change.getExpected();
 
-        return "ALTER TABLE" +
-                handleNullSchema(table.getSchema(), table.getName()) +
-                " ADD COLUMN " +
-                columnSQLDecoratorFactory.decoratorFor(expected).expressSQl() + ";";
+        Map<String, Object> params = new HashMap<>();
+        params.put("schemaName", table.getSchema());
+        params.put("tableName", table.getName());
+        params.put("columnDefinition", columnSQLDecoratorFactory.decoratorFor(expected).expressSQl());
+        return TemplateEngine.process(COLUMN_ADD_TEMPLATE, params);
     }
 
     @Override
     public String dropTable(Table actual) {
-        return "DROP TABLE" + handleNullSchema(actual.getSchema(), actual.getName()) + ";";
+        Map<String, Object> params = new HashMap<>();
+        params.put("schemaName", actual.getSchema());
+        params.put("tableName", actual.getName());
+        return TemplateEngine.process(TABLE_DROP_TEMPLATE, params);
     }
 
     @Override
@@ -228,7 +228,11 @@ public class SpannerDDLGenerator implements DDL {
 
     @Override
     public String dropForeignKey(ForeignKey actual) {
-        return "ALTER TABLE" + handleNullSchema(actual.getSchema(), actual.getTableName()) + " DROP CONSTRAINT " + DEFAULT_WRAPPER + actual.getName() + DEFAULT_WRAPPER + ";";
+        Map<String, Object> params = new HashMap<>();
+        params.put("schemaName", actual.getSchema());
+        params.put("tableName", actual.getTableName());
+        params.put("foreignkeyName", actual.getName());
+        return TemplateEngine.process(FOREIGN_KEY_DROP_TEMPLATE, params);
     }
 
     @Override

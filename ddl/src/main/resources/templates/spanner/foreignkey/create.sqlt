@@ -1,0 +1,1 @@
+ALTER TABLE [(${tableName})] ADD CONSTRAINT [(${foreignkeyName})] FOREIGN KEY ("[(${foreignkeyColumn})]") REFERENCES [(${primaryTableName})]("[(${foreignKeyPrimaryColumnName})]") [(${deleteRule})];
