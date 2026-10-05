@@ -11,7 +11,7 @@
 - name: Google Cloud Spanner 2.6.2
   link: https://search.maven.org/remotecontent?filepath=com/google/cloud/google-cloud-spanner-jdbc/2.6.2/google-cloud-spanner-jdbc-2.6.2-single-jar-with-dependencies.jar
 - name: SQL Server 12.2.0
-  link: https://go.microsoft.com/fwlink/?linkid=2223050
+  link: https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.2.0.jre11/mssql-jdbc-12.2.0.jre11.jar
 - name: DB2 jcc4
   link: https://repo1.maven.org/maven2/com/ibm/db2/jcc/db2jcc/db2jcc4/db2jcc-db2jcc4.jar
 - name: Oracle 23.2.0.0

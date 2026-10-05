@@ -9,6 +9,15 @@ import java.sql.SQLException;
 public class DriverManagerDriverProvider implements JDBCDriverProvider {
     @Override
     public Driver getDriver(Connection connection) throws SQLException {
-        return DriverManager.getDriver(connection.getUrl());
+        try {
+            return DriverManager.getDriver(connection.getUrl());
+        } catch (SQLException noDriverOnClasspath) {
+            // Not on the classpath, look in the drivers directory
+            Driver driver = DriverDirectoryLoader.findDriver(connection.getUrl());
+            if (driver == null) {
+                throw noDriverOnClasspath;
+            }
+            return driver;
+        }
     }
 }
