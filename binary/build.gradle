@@ -35,6 +35,7 @@ runtime {
             'java.management',
             'java.prefs',
             'java.desktop',
+            'java.instrument',
             'jdk.unsupported',
             'jdk.crypto.ec',
             'jdk.crypto.cryptoki',

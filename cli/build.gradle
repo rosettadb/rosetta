@@ -57,7 +57,8 @@ test {
 
 jar {
     manifest {
-        attributes "Main-Class": 'com.adaptivescale.rosetta.cli.Main'
+        attributes "Main-Class": 'com.adaptivescale.rosetta.cli.Main',
+                "Premain-Class": 'com.adaptivescale.rosetta.cli.DriverAgent'
     }
     from {
         setDuplicatesStrategy(DuplicatesStrategy.INCLUDE)
